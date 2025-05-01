@@ -1,0 +1,229 @@
+= Géolocalisation
+Stephane Gill (C) mai 2023
+:pdf-theme: /home/gills/Asciidoc/steph-theme.yml
+:toc:
+:toc-title: Table des matières
+:source-highlighter: rouge
+:listing-caption: Exemple
+:imagesdir: Images
+
+<<<
+
+Le but de ce chapitre est d'obtenir la position d'un appareil Android.
+
+== Architecture de l'application
+
+Dans un premier temps, il est nécessaire de configurer un projet dans __Android Studio__ avec un modèle __Activité Compose vide__. Nommez ce projet ``Geolocation1``.
+
+=== Création du modèle
+
+[source, kotlin, linenums]
+----
+package com.example.geolocation1.ui
+
+data class GeoLocationUiState(
+    var latitude: Double = 0.0,
+    var longitude: Double = 0.0
+)
+----
+
+=== Création de la vue
+
+[source, kotlin, linenums]
+----
+package com.example.geolocation1.ui
+
+import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.geolocation1.LocationUtil.LocationUtil
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+
+@Composable
+fun GeoLocationScreen(geoLocationViewModel: GeoLocationViewModel = viewModel()) {
+    val geoLocationUiState = geoLocationViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val locationClient = LocationUtil(context, geoLocationViewModel)
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ){
+        Text(
+            text = "Latitude: ${geoLocationUiState.value.latitude}",
+        )
+        Text(
+            text = "Longitude: ${geoLocationUiState.value.longitude}",
+        )
+        Spacer(Modifier.height(36.dp))
+        Button(onClick = {
+            locationClient.obtenirPosition()
+        }){
+            Text(text = "Obtenir ma position")
+        }
+    }
+
+}
+
+----
+
+=== Création de la vue modèle
+
+[source, kotlin, linenums]
+----
+package com.example.geolocation1.ui
+
+import androidx.lifecycle.ViewModel
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+class GeoLocationViewModel() : ViewModel() {
+    private val _uiState = MutableStateFlow(GeoLocationUiState())
+    val uiState: StateFlow<GeoLocationUiState> = _uiState.asStateFlow()
+
+    fun setPosition(nvLatitude: Double, nvLongitude: Double){
+        _uiState.update { currentState ->
+            currentState.copy(
+                latitude = nvLatitude,
+                longitude = nvLongitude
+            )
+        }
+    }
+}
+----
+
+== Obtenir la position
+
+. Ajouter les permisssions dans ``AndroidManifest.xml``
++
+[source, kotlin, linenums]
+----
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+----
+
+. Ouvrez le fichier ``build.gradle(Module: app)`` dans le bloc ``dependencies`` et ajoutez la dépendance suivante pour ``ViewModel`` et `pour la localisation.
++
+[source, kotlin, linenums]
+----
+...
+implementation("com.google.android.gms:play-services-location:21.0.1")
+implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.5.1")
+...
+----
+
+. Ajouter une classe ``LocationUtil.kt`` qui permettra d'obtenir la position de l'apareil Android.
++
+[source, kotlin, linenums]
+----
+package com.example.geolocation1.LocationUtil
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.util.Log
+import androidx.core.app.ActivityCompat
+import com.example.geolocation1.ui.GeoLocationViewModel
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationToken
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.OnTokenCanceledListener
+
+class LocationUtil {
+    private var fusedLocationClient: FusedLocationProviderClient
+    private var context: Context
+    private var modele: GeoLocationViewModel
+
+    val locationPermissions = arrayOf(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
+
+    constructor(context: Context, geoLocationViewModel: GeoLocationViewModel){
+        this.context = context
+        this.modele = geoLocationViewModel
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    }
+
+    fun verfierPermission() : Boolean {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+            && ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+           return false
+        }
+        return true
+    }
+
+    fun obtenirPermission(): Boolean {
+        ActivityCompat.requestPermissions(context as Activity, locationPermissions, 101)
+        return verfierPermission()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun obtenirPosition(){
+        var permission = false
+
+        if(verfierPermission()){
+            permission = true
+        } else if (obtenirPermission()){
+            permission = true
+        }
+
+        if(permission){
+            Log.d("ALLO", "Obtenir position")
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, object : CancellationToken() {
+                override fun onCanceledRequested(p0: OnTokenCanceledListener) = CancellationTokenSource().token
+
+                override fun isCancellationRequested() = false
+            })
+                .addOnSuccessListener { location: Location? ->
+                    if (location == null)
+                        Log.d("ALLO", "Cannot get location.")
+                    else {
+                        val lat = location.latitude
+                        val lon = location.longitude
+                        Log.d("ALLO", "Position: ${lat}, ${lon}")
+                        modele.setPosition(lat, lon)
+                    }
+
+                }
+        } else {
+            Log.d("ALLO", "Pas autorisé")
+        }
+    }
+
+}
+----
+
+
+== Références
+
+- https://www.freecodecamp.org/news/requesting-location-permissions-in-jetpack-compose/[How to Request Location Permissions in Jetpack Compose]
+
+- https://developer.android.com/training/location/request-updates?hl=fr#addt-resources-samples[Demander des mises à jour de la position géographique]
+
+- https://stackoverflow.com/questions/72159435/how-to-get-location-using-fusedlocationclient-getcurrentlocation-method-in-kot/72159436#72159436[How to get location using "fusedLocationClient.getCurrentLocation" method in Kotlin?]

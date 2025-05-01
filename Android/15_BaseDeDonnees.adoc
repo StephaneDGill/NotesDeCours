@@ -1,0 +1,291 @@
+= Base de données locale - ObjectBox
+Stephane Gill (C) avril 2024
+:pdf-theme: /home/gills/Asciidoc/steph-theme.yml
+:toc:
+:toc-title: Table des matières
+:source-highlighter: rouge
+:listing-caption: Exemple
+:imagesdir: Images
+
+<<<
+
+**ObjectBox ** est une solution de base de données NoSQL qui permet de stocker et d'obtenir rapidement les données d'une application mobile.
+
+== Exemple d'application
+
+Pour cette exemple, une application permettant de stocker des noms sera développé. Pour ce faire, il est nécessaire de configurer un projet dans Android Studio avec un modèle **Activité Compose vide**. Nommez ce projet ``BDtest1``.
+
+=== Ajout des modules
+
+. Ouvrez le fichier ``build.gradle.kts(Module:app)`` dans le bloc ``plugins`` et ajoutez les dépendances suivantes:
++
+[source, gradle, linenums]
+----
+...
+id("kotlin-kapt") 
+id("io.objectbox")
+...
+----
+
+. Toujours dans le fichier ``build.gradle.kts(Module:app)`` et ajoutez la dépendance suivante dans le bloc ``dependencies``
++
+[source, gradle, linenums]
+----
+...
+implementation("io.objectbox:objectbox-java:3.7.1")
+implementation("io.objectbox:objectbox-java-api:3.7.1")
+implementation("io.objectbox:objectbox-windows:3.7.1")
+
+annotationProcessor("io.objectbox:objectbox-processor:3.7.1")
+...
+----
+
+. Ouvrez le fichier ``build.gradle.kts(Project:BDtest1)`` dans le bloc ``plugins`` et ajoutez la section ``buildscript`` suivantes:
++
+[source, gradle, linenums]
+----
+...
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("io.objectbox:objectbox-gradle-plugin:3.7.1")
+    }
+}
+----
+
+=== Définition du modèle
+
+Définissez votre modèle en ajoutant une annotation ``@Entity``. ``Entity`` est le nom interne des objets de base de données. Utilisez l'anotation ``@Id`` pour identifier la clé unique.
+
+. Créez une classe de données pour représenter une personne (``UnePersonne.kt``)
++
+[source, kotlin, linenums]
+----
+package com.example.bdtest1
+
+import io.objectbox.annotation.Entity
+import io.objectbox.annotation.Id
+
+@Entity
+data class UnePersonne(
+    @Id
+    var id: Long = 0,
+    var nom: String = ""
+)
+----
+
+=== Point d'accès à la base de données
+
+. Créez une classe ``ObjectBox`` qui permettra de faire l'interface entre votre application est la base de donnée.
++
+[source, kotlin, linenums]
+----
+package com.example.bdtest1
+
+import android.content.Context
+import io.objectbox.BoxStore
+
+object ObjectBox {
+    lateinit var store: BoxStore
+        private set
+
+    fun init(context: Context) {
+        store = MyObjectBox.builder()
+            .androidContext(context.applicationContext)
+            .build()
+    }
+}
+----
+
+=== Ajout, supression  et requête
+
+Une petite application qui permet d'ajouter, de suprimer et d'afficher les données.
+
+[source, kotlin, linenums]
+----
+package com.example.bdtest1
+
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.example.bdtest1.ui.theme.BDtest1Theme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        ObjectBox.init(this)
+
+        setContent {
+            BDtest1Theme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    UneListe()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UneListe(modifier: Modifier = Modifier) {
+    var entree = rememberSaveable { mutableStateOf("") }
+    val myEntityBox = ObjectBox.store.boxFor(unePersonne::class.java)
+        var contenu_liste = rememberSaveable
+                            {mutableStateOf(emptyList<unePersonne>())}
+    
+    // requête
+    val query = myEntityBox
+        .query()
+        .build()
+    contenu_liste.value = query.find()
+    query.close()
+
+    Column (
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ){
+        TextField(
+            value = entree.value,
+            onValueChange = { entree.value = it },
+            label = {Text(text = "Nom: ")}
+        )
+        Row(){
+            Button(
+                onClick = {
+                    // id = 0 -> l'id sera assigné automatiquement
+                    val newData = unePersonne(0, entree.value)
+                    // put ajoute un nouvel objet ou met à jour un objet
+                    // existant (avec le même ID)
+                    myEntityBox.put(newData)
+                    
+                    // requête
+                    val query = myEntityBox
+                        .query()
+                        .build()
+                    contenu_liste.value = query.find()
+                    query.close()
+                },
+                ){
+                Text(text = "Ajouter")
+            }
+            Spacer(Modifier.width(16.dp))
+            Button(
+                onClick = {
+                    val nb_personne = myEntityBox.count()
+                    Log.i("Allo", nb_personne.toString())
+                    //myEntityBox.remove(4)
+                    myEntityBox.removeAll()
+                    val query = myEntityBox
+                        .query()
+                        .build()
+                    contenu_liste.value = query.find()
+                    query.close()
+                },
+            ){
+                Text(text = "Effacer")
+            }
+        }
+        MaListe(contenu_liste.value)
+    }
+
+}
+
+@Composable
+fun MaListe(liste: List<unePersonne>, modifier: Modifier = Modifier){
+    LazyColumn{
+        items(liste){
+            item -> UnePersonne(item, modifier)
+        }
+    }
+}
+
+
+@Composable
+fun UnePersonne(personne: unePersonne, modifier: Modifier = Modifier){
+    Card(modifier = modifier
+        .padding(8.dp)
+        .fillMaxWidth()) {
+        Column {
+            Text(
+                text = "${personne.id} ${personne.nom}",
+                modifier = Modifier.padding(4.dp)
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun GreetingPreview() {
+    BDtest1Theme {
+        UneListe()
+    }
+}
+----
+image::Screenshot_20240411_111524.png[scaledwidth=50%]
+
+Les lignes...
+
+== Références
+
+* link:{https://github.com/objectbox}[ObjectBox]
+
+* link:{https://github.com/objectbox/objectbox-examples/tree/main/android-app-kotlin}[ObjectBox Kotlin Android App Example]
+
+* link:{https://kananabilzada.medium.com/objextbox-usage-in-kotlin-81882472d69d}[ObjextBox usage in kotlin]
+
+* link:{https://docs.objectbox.io/}[ObjectBox Docs (Java, Kotlin, Dart)]
+
+
+////
+
+Note:
+
+SQLDelight
+https://github.com/cashapp/sqldelight
+https://cashapp.github.io/sqldelight/2.0.1/
+
+=========================
+Faire des tests pour chapitre Base de données distante
+
+Firebase
+Firebase is a cloud service designed to power real-time, collaborative applications...
+
+https://medium.com/@dugguRK/understanding-real-time-firebase-database-in-android-eec9967745c8
+
+https://developer.android.com/courses/android-basics-compose-firebase/unit-5?hl=fr
+https://www.geeksforgeeks.org/android-jetpack-compose-add-data-to-firebase-firestore/
+========================
+
+////
